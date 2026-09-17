@@ -17,6 +17,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #include <zmk/event_manager.h>
 #include <zmk/battery.h>
+#include <zmk/usb.h>
 #include <zmk/events/battery_state_changed.h>
 #include <zmk/events/activity_state_changed.h>
 #include <zmk/activity.h>
@@ -84,9 +85,22 @@ static int zmk_battery_update(const struct device *battery) {
     }
 
     uint16_t mv = voltage.val1 * 1000 + (voltage.val2 / 1000);
-    state_of_charge.val1 = lithium_ion_mv_to_pct(mv);
+    uint16_t battery_mv = mv;
 
-    LOG_DBG("State of change %d from %d mv", state_of_charge.val1, mv);
+    /*
+     * nice!nano v2 can read roughly 0.2 V high while USB power is present,
+     * which makes the stock linear conversion jump to 100% as soon as the
+     * keyboard is plugged in. Compensate only while USB is powered so the
+     * displayed percentage remains useful as charging progress.
+     */
+    if (zmk_usb_is_powered() && battery_mv > 200) {
+        battery_mv -= 200;
+    }
+
+    state_of_charge.val1 = lithium_ion_mv_to_pct(battery_mv);
+
+    LOG_DBG("State of charge %d from %d mv (raw %d mv)", state_of_charge.val1, battery_mv,
+            mv);
 #else
 #error "Not a supported reporting fetch mode"
 #endif
